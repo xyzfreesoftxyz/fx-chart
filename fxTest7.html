@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <title>USDJPY リアルタイムチャート（APIキーなし）</title>
+  <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    body { margin: 0; background: #111; color: #eee; font-family: sans-serif; }
+    #chart { width: 100vw; height: 100vh; }
+  </style>
+</head>
+<body>
+  <div id="chart"></div>
+
+  <script>
+    // -----------------------------
+    // 1. チャート初期化
+    // -----------------------------
+    const chart = LightweightCharts.createChart(document.getElementById('chart'), {
+      layout: { background: { color: '#111' }, textColor: '#eee' },
+      grid: { vertLines: { color: '#222' }, horzLines: { color: '#222' } },
+      timeScale: { timeVisible: true, secondsVisible: true }
+    });
+
+    const lineSeries = chart.addLineSeries({ color: '#4ade80', lineWidth: 2 });
+
+    // SMA用
+    const sma5Series = chart.addLineSeries({ color: '#22c55e', lineWidth: 2 });
+    const sma20Series = chart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
+
+    let priceData = [];
+
+    // -----------------------------
+    // 2. SMA計算
+    // -----------------------------
+    function calcSMA(data, period) {
+      if (data.length < period) return [];
+      const result = [];
+      for (let i = period - 1; i < data.length; i++) {
+        const slice = data.slice(i - period + 1, i + 1);
+        const avg = slice.reduce((s, d) => s + d.value, 0) / period;
+        result.push({ time: data[i].time, value: avg });
+      }
+      return result;
+    }
+
+    // -----------------------------
+    // 3. 売買サイン生成
+    // -----------------------------
+    function generateSignals() {
+      const sma5 = calcSMA(priceData, 5);
+      const sma20 = calcSMA(priceData, 20);
+
+      sma5Series.setData(sma5);
+      sma20Series.setData(sma20);
+
+      if (sma5.length < 2 || sma20.length < 2) return;
+
+      const last5 = sma5[sma5.length - 1];
+      const prev5 = sma5[sma5.length - 2];
+      const last20 = sma20[sma20.length - 1];
+      const prev20 = sma20[sma20.length - 2];
+
+      // ゴールデンクロス
+      if (prev5.value <= prev20.value && last5.value > last20.value) {
+        lineSeries.setMarkers([{ time: last5.time, position: 'belowBar', color: '#22c55e', shape: 'arrowUp', text: 'BUY' }]);
+      }
+
+      // デッドクロス
+      if (prev5.value >= prev20.value && last5.value < last20.value) {
+        lineSeries.setMarkers([{ time: last5.time, position: 'aboveBar', color: '#ef4444', shape: 'arrowDown', text: 'SELL' }]);
+      }
+    }
+
+    // -----------------------------
+    // 4. Yahoo Finance からリアルタイム取得（APIキー不要）
+    // -----------------------------
+    async function fetchPrice() {
+      try {
+        const res = await fetch("https://query1.finance.yahoo.com/v8/finance/chart/USDJPY=X?interval=1m");
+        const json = await res.json();
+
+        const ts = json.chart.result[0].timestamp;
+        const close = json.chart.result[0].indicators.quote[0].close;
+
+        const newData = ts.map((t, i) => ({
+          time: t,
+          value: close[i]
